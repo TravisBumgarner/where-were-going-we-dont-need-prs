@@ -12,8 +12,8 @@ wit apply                   have Claude apply the changes you requested
 wit sync                    bring main's latest rules into your branch
 ```
 
-Also: `wit status`, `wit log`, `wit map` (a zoomable map of the rules), `wit switch`,
-`wit abandon`, `wit open`.
+Also: `wit status`, `wit log`, `wit map` (the rules as a zoomable map, or `--hierarchy` for a table), `wit switch`,
+`wit discard`, `wit abandon`, `wit open`. Files listed in `.witignore` (same syntax as `.gitignore`) are never tracked; `node_modules/`, `dist/`, `.env`, and database files are ignored by default.
 
 ## Install
 

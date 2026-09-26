@@ -8,8 +8,9 @@ import { createInterface } from "node:readline/promises";
 import { prompt, reportFrom, runHeadless, runInteractive, writeTranscript } from "./claude.ts";
 import { api, ApiError, ensureServer, fetchBlobs, ServerDown } from "./client.ts";
 import { ORIGIN, RULES_FORMAT_DOC } from "./config.ts";
+import { STARTER } from "./ignore.ts";
 import {
-  type State, type Tree, changes, checkout, findRoot, logPath, readLog, readState, snapshot, witDir, writeState,
+  type State, type Tree, changes, checkout, findRoot, logPath, readLog, readState, snapshot, tracked, witDir, writeState,
 } from "./workdir.ts";
 
 const tty = process.stdout.isTTY;
@@ -40,13 +41,18 @@ const requireBranch = () => {
   return ctx;
 };
 
-const localChanges = (root: string, state: State) => changes(state.tree, snapshot(root).tree);
+// Changes to tracked files. Files that are now ignored aren't changes: they're left alone.
+const localChanges = (root: string, state: State) => changes(tracked(root, state.tree), snapshot(root).tree);
+const listChanges = (list: { status: string; path: string }[]) => list.map((c) => `  ${c.status.padEnd(9)} ${c.path}`).join("\n");
+const sameTree = (a: Tree, b: Tree) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
 
 const requireClean = (root: string, state: State, action: string) => {
   const dirty = localChanges(root, state);
-  if (dirty.length) {
-    throw new UsageError(`You have changes that haven't been condensed, so you can't ${action}:\n${dirty.map((c) => `  ${c.status.padEnd(9)} ${c.path}`).join("\n")}\nRun \`wit condense\` first.`);
-  }
+  if (!dirty.length) return;
+  const way = state.branch === "main"
+    ? "Start a branch with `wit start \"…\"` (your changes come with you), or throw them away with `wit discard`."
+    : "Save them with `wit condense`, or throw them away with `wit discard`.";
+  throw new UsageError(`You have uncondensed changes, so you can't ${action}:\n${listChanges(dirty)}\n${way}`);
 };
 
 // Uploads the working copy as a new revision on the current branch.
@@ -114,6 +120,7 @@ const commands: Record<string, { usage: string; summary: string; run: (args: str
         mkdirSync(join(root, "rules"), { recursive: true });
         writeFileSync(rootNode, `# ${title}\n\n${summary || "Principles that hold everywhere in the product."}\n`);
       }
+      if (!existsSync(join(root, ".witignore"))) writeFileSync(join(root, ".witignore"), STARTER);
       const { tree, files } = snapshot(root);
       const blobs = Object.fromEntries([...files].map(([path, data]) => [tree[path], data.toString("base64")]));
       const { rev } = await api<{ rev: number }>("POST", "/api/repos", { name, tree, blobs, message: "Initialize" });
@@ -133,16 +140,24 @@ const commands: Record<string, { usage: string; summary: string; run: (args: str
       const description = rest.join(" ").trim();
       if (!description) throw new UsageError('Say what the branch is for: wit start "add reminders"');
       const { root, state } = requireRepo();
-      requireClean(root, state, "start a branch");
       if (readLog(root, state.branch) && state.branch !== "main") {
         throw new UsageError(`Branch ${state.branch} has decisions that haven't been condensed. Run \`wit condense\` first.`);
+      }
+      // Uncondensed changes come along to the new branch, as long as they're on top of main's latest.
+      const dirty = localChanges(root, state);
+      const main = await api("GET", `/api/repos/${state.repo}/branches/main`);
+      const { tree: mainTree } = await api<{ tree: Tree }>("GET", `/api/repos/${state.repo}/revisions/${main.head_rev}`);
+      if (dirty.length && !sameTree(tracked(root, state.tree), tracked(root, mainTree))) {
+        throw new UsageError(`You have uncondensed changes on ${state.branch}, which isn't at main's latest:\n${listChanges(dirty)}\nSave them with \`wit condense\`, or throw them away with \`wit discard\`.`);
       }
       let name = String(f.name ?? slugify(description));
       for (let i = 2; ; i++) {
         try {
           const created = await api<{ name: string; rev: number }>("POST", `/api/repos/${state.repo}/branches`, { name, description });
-          await moveTo(root, state, created.name, created.rev);
+          if (dirty.length) writeState(root, { ...state, branch: created.name, rev: created.rev, tree: mainTree });
+          else await moveTo(root, state, created.name, created.rev);
           console.log(`${green("✓")} On new branch ${bold(created.name)} from main r${created.rev}.`);
+          if (dirty.length) console.log(dim(`Brought ${dirty.length} uncondensed change${dirty.length === 1 ? "" : "s"} along.`));
           console.log(`\nNext: ${bold("wit chat")}`);
           return;
         } catch (err) {
@@ -237,7 +252,12 @@ const commands: Record<string, { usage: string; summary: string; run: (args: str
       console.log(entries.length ? entries.map((e) => `  ${e}`).join("\n") : dim("  none"));
       const local = localChanges(root, state);
       console.log(`\n${bold(`Uncondensed changes (${local.length})`)}`);
-      console.log(local.length ? local.map((c) => `  ${c.status.padEnd(9)} ${c.path}`).join("\n") : dim("  none"));
+      console.log(local.length ? listChanges(local) : dim("  none"));
+      const nowIgnored = Object.keys(state.tree).filter((p) => !(p in tracked(root, state.tree)));
+      if (nowIgnored.length) {
+        console.log(`\n${bold(`Now ignored (${nowIgnored.length})`)} ${dim("— left alone on disk, and dropped from the next revision")}`);
+        console.log(nowIgnored.map((p) => dim(`  ${p}`)).join("\n"));
+      }
       if (state.branch !== "main" && (entries.length || local.length)) console.log(`\nNext: ${bold("wit condense")}`);
     },
   },
@@ -380,6 +400,37 @@ const commands: Record<string, { usage: string; summary: string; run: (args: str
     },
   },
 
+  discard: {
+    usage: "wit discard [<path>…] [--yes]",
+    summary: "Throw away uncondensed changes (all, or just some paths)",
+    run: async (args) => {
+      const { flags: f, rest: paths } = flags(args);
+      const { root, state } = requireRepo();
+      const all = localChanges(root, state);
+      const under = (path: string, p: string) => path === p.replace(/\/$/, "") || path.startsWith(`${p.replace(/\/$/, "")}/`);
+      const targets = paths.length ? all.filter((c) => paths.some((p) => under(c.path, p))) : all;
+      if (!targets.length) {
+        console.log("Nothing to discard.");
+        return;
+      }
+      console.log(listChanges(targets));
+      if (!f.yes) {
+        const answer = await ask(`Throw away ${targets.length === 1 ? "this change" : `these ${targets.length} changes`}? This can't be undone. [y/N]`, "n");
+        if (answer.toLowerCase() !== "y") return;
+      }
+      const blobs = await fetchBlobs(targets.filter((c) => c.status !== "added").map((c) => state.tree[c.path]));
+      for (const c of targets) {
+        const full = join(root, c.path);
+        if (c.status === "added") rmSync(full, { force: true });
+        else {
+          mkdirSync(join(full, ".."), { recursive: true });
+          writeFileSync(full, blobs[state.tree[c.path]]);
+        }
+      }
+      console.log(`${green("✓")} Discarded ${targets.length} change${targets.length === 1 ? "" : "s"}.${readLog(root, state.branch) ? dim(" Recorded decisions were kept.") : ""}`);
+    },
+  },
+
   switch: {
     usage: "wit switch <branch|main>",
     summary: "Switch the working copy to another branch",
@@ -435,12 +486,12 @@ const commands: Record<string, { usage: string; summary: string; run: (args: str
   },
 
   map: {
-    usage: "wit map",
-    summary: "Open the zoomable map of this branch's rules",
-    run: async () => {
+    usage: "wit map [--hierarchy]",
+    summary: "Open this branch's rules as a zoomable map (or --hierarchy for a table)",
+    run: async (args) => {
       const { state } = requireRepo();
       await api("GET", "/api/health");
-      const url = `${ORIGIN}/r/${state.repo}/map?branch=${state.branch}`;
+      const url = `${ORIGIN}/r/${state.repo}/map?branch=${state.branch}${args.includes("--hierarchy") ? "&view=hierarchy" : ""}`;
       console.log(cyan(url));
       openUrl(url);
     },

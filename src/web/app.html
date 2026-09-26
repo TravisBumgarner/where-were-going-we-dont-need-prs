@@ -114,7 +114,7 @@ async function repo(name) {
     <h1>${esc(r.title ?? r.name)}</h1>
     <p class="lede">${esc(r.summary)}</p>
     <div class="stats"><span><strong>${r.ruleCount}</strong> active rules</span><span><strong>${r.nodeCount}</strong> nodes</span><span>main at <strong>r${r.mainRev}</strong></span></div>
-    <div class="actions"><a class="btn" href="/r/${encodeURIComponent(r.name)}/map">Open the map</a></div>
+    <div class="actions"><a class="btn" href="/r/${encodeURIComponent(r.name)}/map">Open the map</a><a class="btn secondary" href="/r/${encodeURIComponent(r.name)}/map?view=hierarchy">Hierarchy</a></div>
     ${r.passkey ? "" : `<div class="notice" style="margin-top:20px">No passkey yet, so nothing can be merged. <a href="/setup">Set one up</a>.</div>`}
     <h2>Open branches</h2>
     <div class="list">${open.map(branchRow).join("") || `<p class="empty">None. Start one with <code>wit start "…"</code>.</p>`}</div>
