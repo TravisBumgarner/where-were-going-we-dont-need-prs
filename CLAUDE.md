@@ -1,33 +1,44 @@
-# We Don't Need PRs
+# wit
 
-This repo is **the tool**: a Claude Code plugin (`tb`) for building software by reviewing
-business rules instead of code. Products built with it (e.g. a todo app) live in their own
-repos, set up with `/tb:init`, and hold their own `rules/` taxonomy. This repo has no product
-rules.
+This repo is **wit**: version control for business rules, replacing git and GitHub for
+products built this way. You talk to Claude, and decisions are recorded as they happen. `wit condense`
+turns them into a taxonomy of rules, and the human reviews rules, never code, on a local
+GitHub-like server. Approving a review merges it, and that needs the owner's passkey.
 
 ## Layout
 
-- `.claude-plugin/`: plugin manifest (`plugin.json`) and a local marketplace (`marketplace.json`).
-- `skills/`: `init`, `branch`, `condense`, `commit`, `review`, `map`. Invoked as `/tb:<name>`.
-- `docs/rules-format.md`: the rules taxonomy format. It's the contract every skill and the
-  guardrails agree on. Change it and all of them together.
-- `guardrails/dangerfile.js` and `.github/workflows/guardrails.yml`: the hard rules. Product
-  repos call the workflow pinned to a commit SHA of this repo.
+- `bin/wit.js`: the CLI entry. Node 24 runs the TypeScript in `src/` directly: no build, no deps.
+- `src/cli.ts`: every command. `src/workdir.ts`: working copy snapshots and checkout.
+  `src/client.ts`: API client. It never starts the server. `src/claude.ts`: launching Claude,
+  interactively for `wit chat` and headless for `wit condense` / `wit apply`.
+- `src/prompts/`: what Claude is told in chat, condense, and apply. These are the product's
+  behavior as much as the code is.
+- `src/rules.ts`: the rules taxonomy parser, shared by CLI and server. `docs/rules-format.md` is
+  the format contract. Change them together.
+- `src/server/`: the server, run from this repo with `npm start`. SQLite at `data/wit.db` (`db.ts`, gitignored), rule-level three-way merge for
+  `wit sync` (`merge.ts`), passkey approval (`webauthn.ts`), routes (`index.ts`).
+- `src/checks.ts`: the guardrails. Nothing merges while one fails.
+- `src/web/`: the pages. `app.html` (repos, repo, passkey setup), `review.html`, `map.html`.
+  Plain HTML and JS, no framework.
 
 ## Trust anchors
 
-`guardrails/`, `.github/`, and `skills/review/` (the review page and server) are what a human
-relies on to catch Claude's mistakes in product repos. When changing them:
+The human relies on these to catch Claude's mistakes:
+- `src/checks.ts`
+- `src/server/webauthn.ts`
+- the approve route in `src/server/index.ts`
+- `src/web/review.html`
 
-- Only do it when the user asked for that change.
-- Call out every change to these paths explicitly at the end of the turn, so the human knows
-  to read the diff. Never bundle them silently with other work.
+When changing any of them:
+- Only do it when asked.
+- Call out every change to these files at the end of the turn, so the human knows to read the diff.
 - Never weaken a check to make something pass.
 
 ## Developing
 
-- Try the plugin locally: `claude --plugin-dir ~/Programming/we-dont-need-prs`, run from a
-  product repo.
-- Validate manifests and skills: `claude plugin validate .`
-- Skills find their bundled files via the "base directory for this skill" that Claude Code
-  provides when a skill loads. Never hardcode this repo's path in a skill.
+- Typecheck: install TypeScript somewhere outside the repo and run `tsc` with `"allowImportingTsExtensions"`
+  and `"erasableSyntaxOnly"`. Only erasable TypeScript is allowed (no enums, no parameter properties),
+  because Node strips types rather than compiling.
+- Test against an isolated server so you don't touch real data:
+  `WIT_DATA=/tmp/wit-test WIT_PORT=4799 npm start`, then `WIT_PORT=4799 wit …`.
+- Passkeys need the `localhost` hostname, not `127.0.0.1`.

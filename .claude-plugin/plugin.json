@@ -1,6 +1,0 @@
-{
-  "name": "tb",
-  "version": "0.1.0",
-  "description": "Review business rules instead of code. Branch, condense conversations into a taxonomy of rules, review them in the browser, and zoom around the rule map.",
-  "author": { "name": "Travis Bumgarner" }
-}

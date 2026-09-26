@@ -1,0 +1,12 @@
+{
+  "name": "wit",
+  "version": "0.1.0",
+  "description": "Version control for business rules. Branch, chat with Claude, condense decisions into a rules taxonomy, and review rules instead of code.",
+  "type": "module",
+  "bin": { "wit": "bin/wit.js" },
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node --no-warnings src/server/index.ts",
+    "typecheck": "tsc --noEmit"
+  }
+}

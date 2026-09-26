@@ -26,7 +26,8 @@
   /* Top bar */
   .bar { position: fixed; inset: 0 0 auto 0; height: 52px; display: flex; align-items: center; gap: 16px;
     padding: 0 16px; background: var(--bar); border-bottom: 1px solid var(--border); z-index: 2; }
-  .repo { font-weight: 700; white-space: nowrap; }
+  .repo { font-weight: 700; white-space: nowrap; color: var(--text); text-decoration: none; }
+  .label { font: 12px ui-monospace, Menlo, monospace; color: var(--muted); white-space: nowrap; }
   .crumbs { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; flex: 1; font-size: 14px; }
   .crumbs button { all: unset; cursor: pointer; color: var(--muted); white-space: nowrap; padding: 2px 4px; border-radius: 4px; }
   .crumbs button:hover { color: var(--text); background: var(--node-2); }
@@ -81,7 +82,7 @@
 </head>
 <body>
 <div class="bar">
-  <span class="repo" id="repo"></span>
+  <a class="repo" id="repo"></a><span class="label" id="label"></span>
   <nav class="crumbs" id="crumbs" aria-label="Location"></nav>
   <div class="controls">
     <label><input type="checkbox" id="show-retired"> Show retired</label>
@@ -147,7 +148,7 @@ function renderNode(node, depth, hue) {
     kids.append(cell);
   });
   if (!node.rules.length && !node.children.length) {
-    kids.insertAdjacentHTML("beforebegin", `<p class="empty">No rules yet. <code>/tb:commit</code> adds them here.</p>`);
+    kids.insertAdjacentHTML("beforebegin", `<p class="empty">No rules yet. <code>wit condense</code> adds them here.</p>`);
   }
   return el;
 }
@@ -323,7 +324,9 @@ window.addEventListener("hashchange", () => fromHash({ animate: true }));
 // ---------- Boot ----------
 
 $("#repo").textContent = DATA.repo;
-document.title = `${DATA.repo} · Rules Map`;
+$("#repo").href = `/r/${encodeURIComponent(DATA.repo)}`;
+$("#label").textContent = DATA.label ?? "";
+document.title = `${DATA.repo} · Map`;
 world.append(renderNode(DATA.tree, 0, HUES[0]));
 layout(world.firstElementChild);
 fromHash({ animate: false });

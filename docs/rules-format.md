@@ -4,7 +4,7 @@ Business rules form a taxonomy: a tree of **nodes**, where each node holds the r
 that are true at that level of generality. Zoomed out, you see principles. Zoomed in,
 you see specifics.
 
-Run `/tb:map` to explore it as a zoomable map.
+Run `wit map` to explore it as a zoomable map.
 
 ## Layout
 

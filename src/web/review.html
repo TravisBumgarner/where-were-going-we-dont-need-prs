@@ -103,13 +103,30 @@
   button:disabled { opacity: .45; cursor: not-allowed; }
   .empty, .done { text-align: center; color: var(--muted); padding: 64px 0; }
   .done h2 { color: var(--text); }
+
+  .top .back { color: var(--muted); text-decoration: none; font-size: 14px; }
+  .top .back:hover { color: var(--text); }
+  .banner { border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 14px; border: 1px solid var(--border); background: var(--surface); }
+  .banner.warn { background: var(--del-bg); color: var(--del-text); border-color: transparent; }
+  .banner.info { border-color: var(--moved); }
+  .banner.ok { background: var(--add-bg); color: var(--add-text); border-color: transparent; }
+  .checks { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 20px; font-size: 14px; }
+  .checks.pass { color: var(--add-text); }
+  .checks.fail { border-color: var(--removed); }
+  .checks.fail strong { color: var(--removed); }
+  .checks ul { margin: 6px 0 0; padding-left: 18px; }
+  button.danger-ish { background: transparent; color: var(--revise); border: 1px solid var(--revise); }
+  .readonly .decide { opacity: .75; }
+  .readonly .decide input, .readonly .decide select, .readonly .decide textarea { pointer-events: none; }
+  code.cmd { background: var(--sunken); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }
 </style>
 </head>
 <body>
 <div class="top"><div class="inner">
-  <h1>Rules review</h1>
+  <a class="back" id="back" href="/">← wit</a>
+  <h1 id="heading">Review</h1>
   <span class="meta" id="meta"></span>
-  <a class="map-link" href="/map" target="_blank" rel="noopener">Open map ↗</a>
+  <a class="map-link" id="map-link" target="_blank" rel="noopener">Open map ↗</a>
 </div></div>
 <div class="layout">
   <nav class="outline" id="outline" aria-label="Taxonomy"></nav>
@@ -118,12 +135,23 @@
 <footer id="footer" hidden><div class="inner">
   <span class="progress" id="progress"></span>
   <button class="secondary" id="approve-rest" type="button">Approve remaining</button>
-  <button id="submit" type="button" disabled>Submit review</button>
+  <button class="danger-ish" id="request" type="button" disabled>Request changes</button>
+  <button id="approve" type="button" disabled>Approve &amp; merge</button>
 </div></footer>
 <script>
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const [, , repoName, , reviewId] = location.pathname.split("/").map(decodeURIComponent);
+
+const api = async (method, path, body) => {
+  const res = await fetch(path, { method, headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+};
+const toBuf = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+const toB64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
 // Line-level LCS diff.
 function diffLines(a, b) {
@@ -159,6 +187,7 @@ const ancestors = (path) => {
   return chain.slice(0, -1);
 };
 const label = (path) => `${titleOf(path)} — rules/${path ? path + "/" : ""}`;
+const mapUrl = (path) => `/r/${encodeURIComponent(review.repo)}/map?branch=${encodeURIComponent(review.branch.name)}&rev=${review.rev}${path != null ? `#node=${encodeURIComponent(path)}` : ""}`;
 
 function choices(name) {
   return `<div class="row choices" role="radiogroup">
@@ -195,7 +224,7 @@ function ruleCard(change) {
       <span class="rule-title">${esc(change.title)}</span>
     </div>
     ${change.fromNode != null ? `<div class="note">Moved from ${esc(label(change.fromNode))}</div>` : ""}
-    <pre class="body">${renderDiff(change.before, change.body)}</pre>
+    <pre class="body">${renderDiff(change.before, change.kind === "removed" ? null : change.body)}</pre>
     <div class="decide">
       <div class="row">${choices(`r-${change.id}`)}
         ${canMove ? `<label class="file-as">File under <select>${options}<option value="__new__">New node…</option></select></label>` : ""}
@@ -240,6 +269,7 @@ const problems = (d) => {
   if (d.decision !== "reject" && d.newNode && (!d.newNode.path || !d.newNode.title)) return "new node";
   return null;
 };
+const canMerge = () => review.status === "open" && !review.stale && !review.mainMoved && review.checks.length === 0;
 
 function update() {
   const items = all();
@@ -247,10 +277,15 @@ function update() {
   const incomplete = items.filter((d) => d.decision && problems(d));
   items.forEach((d) => d._card.classList.toggle("needs-attention", Boolean(d.decision && problems(d))));
   const moves = Object.values(decisions.rules).filter((d) => d.moveTo != null && d.decision !== "reject").length;
+  const allApproved = items.every((d) => d.decision === "approve") && moves === 0;
+  const complete = decided === items.length && incomplete.length === 0;
   $("#progress").textContent = `${decided} of ${items.length} decided` +
     (moves ? ` · ${plural(moves, "re-filing")}` : "") +
     (incomplete.length ? ` · ${incomplete.length} need a comment or node details` : "");
-  $("#submit").disabled = decided < items.length || incomplete.length > 0;
+  $("#request").disabled = !complete || allApproved;
+  $("#approve").disabled = !complete || !allApproved || !canMerge();
+  $("#approve").textContent = review.passkey ? "Approve & merge" : "Set up passkey to merge";
+  if (!review.passkey) $("#approve").disabled = false;
   $("#approve-rest").hidden = decided === items.length;
 }
 
@@ -266,7 +301,7 @@ function renderOutline() {
     const badges = Object.entries(symbols).filter(([k]) => c[k]).map(([k, s]) => `<span class="c-${k}">${s}${c[k]}</span>`).join("");
     const nodeTag = c["node-new"] ? `<span class="c-new">NEW</span>` : c["node-changed"] ? `<span class="c-changed">EDIT</span>` : c["node-removed"] ? `<span class="c-removed">DEL</span>` : "";
     const changed = Object.keys(c).length > 0;
-    const href = changed ? `#node-${encodeURIComponent(n.path)}` : `/map#node=${encodeURIComponent(n.path)}`;
+    const href = changed ? `#node-${encodeURIComponent(n.path)}` : mapUrl(n.path);
     return `<a href="${href}" ${changed ? "" : 'target="_blank" rel="noopener"'} class="${changed ? "has-changes" : ""} ${n.removed ? "removed" : ""}" style="padding-left:${10 + depth * 14}px">
       <span>${esc(n.title)}</span><span class="counts">${nodeTag}${badges}</span></a>`;
   }).join("");
@@ -283,7 +318,7 @@ function renderSection(path) {
       ${crumbs ? `<span class="crumb">${esc(crumbs)} ›</span>` : ""}
       <h2>${esc(node?.title ?? path)}</h2>
       <span class="path"><code>rules/${esc(path ? path + "/" : "")}</code></span>
-      <a class="map" href="/map#node=${encodeURIComponent(path)}" target="_blank" rel="noopener">View on map ↗</a>
+      <a class="map" href="${mapUrl(path)}" target="_blank" rel="noopener">View on map ↗</a>
     </div>
     ${node?.summary ? `<p class="summary">${esc(node.summary)}</p>` : ""}`;
   review.nodeChanges.filter((n) => n.path === path).forEach((n) => section.append(nodeCard(n)));
@@ -296,27 +331,117 @@ function renderSection(path) {
   return section;
 }
 
+function banners() {
+  const out = [];
+  const cmd = (c) => `<code class="cmd">${c}</code>`;
+  if (review.status === "merged") out.push(`<div class="banner ok">Approved and merged into main.</div>`);
+  else if (review.status === "changes_requested") out.push(`<div class="banner info">Changes requested. In your terminal, run ${cmd("wit apply")} to apply them, or ${cmd("wit chat")} to talk them through.</div>`);
+  else if (review.status === "superseded") out.push(`<div class="banner info">This review is out of date. A newer revision was reviewed, or the branch was closed.</div>`);
+  if (review.status === "open" && review.stale) out.push(`<div class="banner warn">The branch has newer revisions than this review (r${review.rev}). Run ${cmd("wit review")} to review the latest.</div>`);
+  if (review.status === "open" && review.mainMoved) out.push(`<div class="banner warn">main has moved since this branch started. Run ${cmd("wit sync")}, then ${cmd("wit review")}, before merging.</div>`);
+  const checks = review.checks.length
+    ? `<div class="checks fail"><strong>✗ ${plural(review.checks.length, "check")} failing. This can't merge until they pass.</strong><ul>${review.checks.map((c) => `<li>${esc(c).replace(/`([^`]+)`/g, "<code>$1</code>")}</li>`).join("")}</ul></div>`
+    : `<div class="checks pass">✓ All guardrail checks pass.</div>`;
+  return out.join("") + checks;
+}
+
+function prefill(saved) {
+  for (const d of all()) {
+    const prior = [...(saved.nodes ?? []), ...(saved.rules ?? [])].find((p) => (d.id ? p.id === d.id : p.path === d.path));
+    if (!prior) continue;
+    const radio = $(`input[value=${prior.decision}]`, d._card);
+    if (radio) radio.checked = true;
+    $("textarea", d._card).value = prior.comment ?? "";
+    const select = $("select", d._card);
+    if (select && prior.moveTo != null) {
+      const option = [...select.options].find((o) => o.value === prior.moveTo);
+      select.value = option ? prior.moveTo : "__new__";
+      if (!option) { $(".new-node", d._card).classList.add("show"); $(".nn-path", d._card).value = prior.moveTo; $(".nn-title", d._card).value = prior.newNode?.title ?? ""; }
+    }
+  }
+  if (saved.summary) $("#summary").value = saved.summary;
+}
+
+const body = () => {
+  const strip = ({ _card, ...rest }) => rest;
+  return { summary: $("#summary").value, nodes: Object.values(decisions.nodes).map(strip), rules: Object.values(decisions.rules).map(strip) };
+};
+
+function done(title, lines) {
+  $("#footer").hidden = true;
+  $("#app").innerHTML = `<div class="done"><h2>${title}</h2>${lines.map((l) => `<p>${l}</p>`).join("")}</div>`;
+  window.scrollTo(0, 0);
+}
+
+async function approve() {
+  if (!review.passkey) { location.href = "/setup"; return; }
+  const button = $("#approve");
+  button.disabled = true;
+  try {
+    const { challenge, rpId, credentialIds } = await api("POST", `/api/reviews/${reviewId}/challenge`);
+    const cred = await navigator.credentials.get({ publicKey: {
+      challenge: toBuf(challenge), rpId, userVerification: "required", timeout: 60000,
+      allowCredentials: credentialIds.map((id) => ({ type: "public-key", id: toBuf(id) })),
+    } });
+    const assertion = {
+      credentialId: toB64url(cred.rawId),
+      authenticatorData: toB64url(cred.response.authenticatorData),
+      clientDataJSON: toB64url(cred.response.clientDataJSON),
+      signature: toB64url(cred.response.signature),
+    };
+    const { mergeRev } = await api("POST", `/api/reviews/${reviewId}/approve`, { assertion, decisions: body() });
+    done("Merged into main", [`<code>${esc(review.branch.name)}</code> is now main r${mergeRev}, signed with your passkey.`, `Start the next thing with <code class="cmd">wit start "…"</code>.`]);
+  } catch (err) {
+    alert(`Couldn't merge: ${err.message}`);
+    update();
+  }
+}
+
+async function requestChanges() {
+  $("#request").disabled = true;
+  try {
+    await api("POST", `/api/reviews/${reviewId}/feedback`, body());
+    const counts = all().reduce((acc, d) => ((acc[d.decision] = (acc[d.decision] || 0) + 1), acc), {});
+    done("Changes requested", [`${counts.approve || 0} approved · ${counts.revise || 0} need changes · ${counts.reject || 0} rejected`, `In your terminal, run <code class="cmd">wit apply</code> to have Claude apply them, or <code class="cmd">wit chat</code> to talk them through.`]);
+  } catch (err) {
+    alert(`Couldn't save the review: ${err.message}`);
+    update();
+  }
+}
+
 async function load() {
-  review = await (await fetch("/api/review")).json();
+  review = await api("GET", `/api/reviews/${reviewId}`);
   byPath = new Map(review.tree.map((n) => [n.path, n]));
+  document.title = `#${review.id} ${review.branch.name} · Review`;
+  $("#back").href = `/r/${encodeURIComponent(review.repo)}`;
+  $("#back").textContent = `← ${review.repo}`;
+  $("#heading").textContent = `Review #${review.id}`;
+  $("#map-link").href = mapUrl(null);
   const nRules = review.ruleChanges.length, nNodes = review.nodeChanges.length;
-  $("#meta").innerHTML = `<code>${esc(review.branch)}</code> → <code>${esc(review.baseBranch)}</code> · ${plural(nRules, "rule change")} · ${plural(nNodes, "node change")} · ${plural(review.commits.length, "commit")}`;
+  $("#meta").innerHTML = `<code>${esc(review.branch.name)}</code> → <code>main</code> · r${review.rev} · ${plural(nRules, "rule change")} · ${plural(nNodes, "node change")}`;
   renderOutline();
 
   const app = $("#app");
   app.innerHTML = `
-    ${review.uncommittedRules ? `<div class="warning">There are uncommitted changes in <code>rules/</code>. They're not shown here. Run <code>/tb:commit</code> first.</div>` : ""}
-    <details class="context"><summary>Commits and code files on this branch</summary>
-      <ul>${review.commits.map((c) => `<li><code>${esc(c.hash)}</code> ${esc(c.subject)}</li>`).join("") || "<li>No commits</li>"}</ul>
-      ${review.codeFiles.length ? `<p>Code files changed (not reviewed here):</p><ul>${review.codeFiles.map((f) => `<li><code>${esc(f)}</code></li>`).join("")}</ul>` : ""}
+    <p class="summary" style="margin-top:0">${esc(review.branch.description)}</p>
+    ${banners()}
+    <details class="context"><summary>${plural(review.revisions.length, "revision")} and ${plural(review.codeFiles.length, "code file")} on this branch</summary>
+      <ul>${review.revisions.map((r) => `<li><code>r${r.id}</code> ${esc(r.message.split("\n")[0])} <span style="color:var(--muted)">— ${esc(r.author)}</span></li>`).join("") || "<li>No revisions</li>"}</ul>
+      ${review.codeFiles.length ? `<p>Code snapshotted with these rules (not reviewed):</p><ul>${review.codeFiles.map((f) => `<li><code>${esc(f.path)}</code> <span style="color:var(--muted)">${f.status}</span></li>`).join("")}</ul>` : ""}
     </details>
     <div id="sections"></div>
     <section class="overall"><h2>Overall comment (optional)</h2><textarea id="summary" placeholder="Anything about the branch as a whole, or how the taxonomy is organized"></textarea></section>`;
 
-  const paths = [...new Set([...review.nodeChanges.map((n) => n.path), ...review.ruleChanges.map((r) => r.node)])]
-    .sort((a, b) => a.localeCompare(b));
+  const paths = [...new Set([...review.nodeChanges.map((n) => n.path), ...review.ruleChanges.map((r) => r.node)])].sort((a, b) => a.localeCompare(b));
   if (!paths.length) $("#sections").innerHTML = `<p class="empty">No rule or taxonomy changes on this branch.</p>`;
   paths.forEach((p) => $("#sections").append(renderSection(p)));
+
+  if (review.decisions) prefill(review.decisions);
+  if (review.status !== "open") {
+    document.body.classList.add("readonly");
+    document.querySelectorAll("#app input, #app select, #app textarea").forEach((el) => (el.disabled = true));
+    return;
+  }
 
   $("#footer").hidden = false;
   $("#approve-rest").addEventListener("click", () => {
@@ -327,24 +452,12 @@ async function load() {
     }
     update();
   });
-  $("#submit").addEventListener("click", async () => {
-    $("#submit").disabled = true;
-    const strip = ({ _card, ...rest }) => rest;
-    const body = {
-      summary: $("#summary").value,
-      nodes: Object.values(decisions.nodes).map(strip),
-      rules: Object.values(decisions.rules).map(strip),
-    };
-    const res = await fetch("/api/decisions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    if (!res.ok) { $("#submit").disabled = false; alert("Couldn't save the review. Is the server still running?"); return; }
-    const counts = all().reduce((acc, d) => ((acc[d.decision] = (acc[d.decision] || 0) + 1), acc), {});
-    $("#footer").hidden = true;
-    app.innerHTML = `<div class="done"><h2>Review submitted</h2><p>${counts.approve || 0} approved · ${counts.revise || 0} need changes · ${counts.reject || 0} rejected</p><p>Head back to Claude Code. You can close this tab.</p></div>`;
-  });
+  $("#approve").addEventListener("click", approve);
+  $("#request").addEventListener("click", requestChanges);
   update();
 }
 
-load().catch((err) => { $("#app").innerHTML = `<p class="empty">Couldn't load the review: ${esc(String(err))}</p>`; });
+load().catch((err) => { $("#app").innerHTML = `<p class="empty">Couldn't load the review: ${esc(String(err.message ?? err))}</p>`; });
 </script>
 </body>
 </html>
