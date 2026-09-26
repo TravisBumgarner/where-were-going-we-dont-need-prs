@@ -6,6 +6,25 @@ You talk to Claude, and every decision is recorded as it's made. `wit condense` 
 into a tree of rules, and you review the rules in your browser. Approving a review merges it, and
 that takes your passkey.
 
+```
+wit init                     make this folder a wit repo
+wit start "<description>"    start a branch off main (brings uncondensed changes along)
+wit chat                     talk to Claude; decisions are recorded as they're made
+wit condense                 turn decisions into rules and save a revision (like commit)
+wit review                   review the rules in the browser; approving merges
+wit apply                    have Claude apply requested changes
+wit sync                     bring main's latest into this branch
+
+wit status                   branch, recorded decisions, uncondensed changes
+wit log                      revisions on this branch and main
+wit map [--hierarchy]        the rules as a zoomable map, or a table
+wit note "<decision>"        record a decision (Claude does this during chat)
+wit switch <branch|main>     switch branches
+wit discard [<path>…]        throw away uncondensed changes
+wit abandon                  close this branch without merging
+wit open                     open this repo on the server
+```
+
 ## Install
 
 Needs Node 24+ and [Claude Code](https://claude.com/claude-code).
@@ -126,40 +145,6 @@ until you approve and merge.
 **If `main` moved in the meantime**, the review says so and merging is blocked. Run `wit sync`
 to bring main's changes in. Rules merge rule by rule, so two branches that touch different
 rules in the same node merge cleanly. Then `wit review` again.
-
-## Commands
-
-### The loop
-
-| Command | What it does |
-|---|---|
-| `wit init [--name <repo>] [--title <product>] [--summary <text>]` | Make the current folder a wit repo. It creates the root rules node (`rules/index.md`) and a starter `.witignore`, and registers the repo with the server as `main` r1. It asks for the product name and summary if you don't pass them. |
-| `wit start "<what we're doing>" [--name <branch>]` | Start a branch off main's latest. The name comes from the description unless you pass `--name`. Uncondensed changes on `main` come along to the new branch. |
-| `wit chat [--continue] [-- <claude args>]` | Launch Claude in the repo, with the branch, the rules format, any pending review feedback, and instructions to record every decision. `--continue` resumes the branch's last chat. Anything after `--` goes straight to `claude`. |
-| `wit condense` | Turn recorded decisions (and chat transcripts) into rules in the tree. Saves a revision with the rules and a snapshot of the code, then archives the log. Conflicts aren't written: they're reported and left in the log. |
-| `wit review` | Open the review for the branch's latest revision in the browser. Warns you if there are decisions or changes that haven't been condensed, since those aren't in the review. |
-| `wit apply` | Have Claude apply the changes requested in the latest review: revise, reject, re-file, create nodes. Then saves a revision. |
-| `wit sync` | Merge main's latest into this branch, rule by rule. If the same rule changed on both sides, it lists the conflicts and changes nothing. |
-
-### Everything else
-
-| Command | What it does |
-|---|---|
-| `wit note "<decision>"` | Record a decision in the branch's log. Claude runs this during `wit chat`, and you can too. |
-| `wit status` | Show the branch, recorded decisions, uncondensed changes, files that are now ignored, and the review status. |
-| `wit log` | Show revisions on this branch and on main. Merges into main show whether their passkey signature checks out. |
-| `wit map [--hierarchy]` | Open the rules as a zoomable map, or as an indented, filterable table with `--hierarchy`. |
-| `wit switch <branch\|main>` | Switch the working copy to another branch. You need to have no uncondensed changes. |
-| `wit discard [<path>…] [--yes]` | Throw away uncondensed changes: all of them, or just the given files and folders. Asks first unless you pass `--yes`. Recorded decisions are kept. |
-| `wit abandon` | Close this branch without merging and go back to main. Its revisions stay in history. |
-| `wit open` | Open this repo's page on the server: branches, reviews, and the signed history of main. |
-| `wit help` | List the commands. |
-
-The server itself:
-
-| Command (run in this repo) | What it does |
-|---|---|
-| `npm start` | Run the server on port 4711. Use `WIT_PORT` and `WIT_DATA` to run a separate test server. |
 
 ## How it fits together
 
