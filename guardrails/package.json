@@ -1,0 +1,8 @@
+{
+  "name": "guardrails",
+  "private": true,
+  "description": "Hard rules enforced in CI. Runs from the base branch, so a PR cannot change the checks that judge it.",
+  "devDependencies": {
+    "danger": "14.0.7"
+  }
+}

@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rules Map</title>
+<style>
+  :root {
+    --bg: #eeede8; --bar: #fbfaf7; --text: #1d1d1b; --muted: #6b6b66; --border: #dcdbd4;
+    --node: #fbfaf7; --node-2: #f4f3ee; --card: #ffffff; --accent: #2f5bd3; --focus: #2f5bd3;
+    --ok: #1e6b34; --bad: #a4291b; --node-l: 45%; --node-tint: 96%;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121211; --bar: #1b1b19; --text: #ececE8; --muted: #9a9a93; --border: #33332f;
+      --node: #1c1c1a; --node-2: #232320; --card: #2a2a27; --accent: #7d9cff; --focus: #7d9cff;
+      --ok: #8fdca8; --bad: #f2a193; --node-l: 65%; --node-tint: 14%;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+
+  /* Top bar */
+  .bar { position: fixed; inset: 0 0 auto 0; height: 52px; display: flex; align-items: center; gap: 16px;
+    padding: 0 16px; background: var(--bar); border-bottom: 1px solid var(--border); z-index: 2; }
+  .repo { font-weight: 700; white-space: nowrap; }
+  .crumbs { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; flex: 1; font-size: 14px; }
+  .crumbs button { all: unset; cursor: pointer; color: var(--muted); white-space: nowrap; padding: 2px 4px; border-radius: 4px; }
+  .crumbs button:hover { color: var(--text); background: var(--node-2); }
+  .crumbs button:last-child { color: var(--text); font-weight: 600; }
+  .crumbs button:focus-visible { outline: 2px solid var(--focus); }
+  .crumbs .sep { color: var(--muted); }
+  .controls { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .controls label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  .controls kbd { font: 11px ui-monospace, Menlo, monospace; border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; }
+  @media (max-width: 720px) { .hint { display: none; } }
+
+  /* Stage and world */
+  .stage { position: fixed; inset: 52px 0 0 0; overflow: hidden; cursor: grab; touch-action: none; }
+  .stage.dragging { cursor: grabbing; }
+  .world { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+  .world.animating { transition: transform .7s cubic-bezier(.65, 0, .35, 1); }
+
+  /* Nodes: every node is laid out at full width, then scaled into its parent's grid cell. */
+  .node { width: 1100px; padding: 40px; border-radius: 28px; background: var(--node);
+    border: 2px solid hsl(var(--hue) 40% var(--node-l) / .35);
+    box-shadow: inset 10px 0 0 hsl(var(--hue) 55% var(--node-l)); cursor: zoom-in; }
+  .node.depth-odd { background: var(--node-2); }
+  .node.is-focus { border-color: hsl(var(--hue) 55% var(--node-l)); cursor: default; }
+  .node-head { margin-bottom: 28px; padding-left: 12px; }
+  .eyebrow { font: 600 14px ui-monospace, Menlo, monospace; color: hsl(var(--hue) 45% var(--node-l)); letter-spacing: .02em; }
+  .node-head h2 { font-size: 44px; line-height: 1.15; margin: 4px 0 10px; letter-spacing: -.01em; }
+  .node-head p { font-size: 20px; color: var(--muted); margin: 0 0 10px; max-width: 900px; white-space: pre-line; }
+  .counts { font-size: 14px; color: var(--muted); }
+  .warn { color: var(--bad); font-size: 14px; }
+
+  .rules { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 32px; padding-left: 12px; }
+  .rules:empty { display: none; }
+  .rule { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; cursor: zoom-in; }
+  .rule.is-focus { outline: 3px solid var(--focus); outline-offset: 3px; cursor: zoom-out; }
+  .rule.retired { opacity: .55; }
+  body:not(.show-retired) .rule.retired { display: none; }
+  .rule-id { font: 600 13px ui-monospace, Menlo, monospace; color: var(--muted); display: flex; gap: 8px; }
+  .rule-id .status { text-transform: uppercase; letter-spacing: .05em; }
+  .rule h3 { font-size: 20px; line-height: 1.3; margin: 4px 0 8px; }
+  .rule .text { font-size: 16px; margin: 0 0 10px; }
+  .rule .why { font-size: 14px; color: var(--muted); margin: 0 0 8px; }
+  .rule ul { margin: 0 0 8px; padding: 0; list-style: none; font-size: 14px; }
+  .rule li { margin: 2px 0; }
+  .rule .history { font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 6px; margin-top: 8px; }
+
+  .kids { display: grid; gap: 32px; padding-left: 12px; }
+  .cell { position: relative; }
+  .cell > .node { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+
+  .empty { font-size: 18px; color: var(--muted); padding-left: 12px; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <span class="repo" id="repo"></span>
+  <nav class="crumbs" id="crumbs" aria-label="Location"></nav>
+  <div class="controls">
+    <label><input type="checkbox" id="show-retired"> Show retired</label>
+    <span class="hint">click to zoom · <kbd>esc</kbd> out · <kbd>←</kbd><kbd>→</kbd> tour · drag / scroll to pan · pinch to zoom</span>
+  </div>
+</div>
+<div class="stage" id="stage"><div class="world" id="world"></div></div>
+<script>
+const DATA = /*__DATA__*/null;
+const NODE_WIDTH = 1100, NODE_PAD = 40, INDENT = 12, KID_GAP = 32;
+
+const $ = (sel, el = document) => el.querySelector(sel);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/`(.+?)`/g, "<code>$1</code>");
+const stage = $("#stage"), world = $("#world");
+
+// ---------- Render ----------
+
+const HUES = [220, 150, 30, 280, 350, 190, 90, 320];
+const countRules = (n) => n.rules.filter((r) => r.status !== "retired").length + n.children.reduce((a, c) => a + countRules(c), 0);
+
+function renderRule(rule) {
+  const el = document.createElement("article");
+  el.className = `rule${rule.status === "retired" ? " retired" : ""}`;
+  el.dataset.id = rule.id;
+  el.innerHTML = `
+    <div class="rule-id"><span>${esc(rule.id)}</span>${rule.status !== "active" ? `<span class="status">${esc(rule.status)}</span>` : ""}</div>
+    <h3>${inline(rule.title)}</h3>
+    ${rule.rule ? `<p class="text">${inline(rule.rule)}</p>` : ""}
+    ${rule.why ? `<p class="why"><strong>Why:</strong> ${inline(rule.why)}</p>` : ""}
+    ${rule.examples.length ? `<ul>${rule.examples.map((e) => `<li>${inline(e)}</li>`).join("")}</ul>` : ""}
+    ${rule.history.length ? `<div class="history">${rule.history.map(inline).join("<br>")}</div>` : ""}`;
+  return el;
+}
+
+function renderNode(node, depth, hue) {
+  const el = document.createElement("section");
+  el.className = `node${depth % 2 ? " depth-odd" : ""}`;
+  el.dataset.path = node.path;
+  el.style.setProperty("--hue", hue);
+  const total = countRules(node);
+  const areas = node.children.length;
+  el.innerHTML = `
+    <header class="node-head">
+      <div class="eyebrow">${node.path ? esc(node.path) + "/" : "rules/"}</div>
+      <h2>${inline(node.title)}</h2>
+      ${node.summary ? `<p>${inline(node.summary)}</p>` : ""}
+      <div class="counts">${total} rule${total === 1 ? "" : "s"}${areas ? ` · ${areas} area${areas === 1 ? "" : "s"}` : ""}</div>
+      ${node.missingIndex ? `<div class="warn">Missing index.md</div>` : ""}
+    </header>
+    <div class="rules"></div>
+    <div class="kids"></div>`;
+  const rules = $(".rules", el);
+  node.rules.forEach((r) => rules.append(renderRule(r)));
+  const kids = $(".kids", el);
+  const cols = node.children.length <= 1 ? 1 : node.children.length <= 4 ? 2 : 3;
+  kids.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  kids.dataset.cols = cols;
+  node.children.forEach((child, i) => {
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    cell.append(renderNode(child, depth + 1, depth === 0 ? HUES[(i + 1) % HUES.length] : hue));
+    kids.append(cell);
+  });
+  if (!node.rules.length && !node.children.length) {
+    kids.insertAdjacentHTML("beforebegin", `<p class="empty">No rules yet. <code>/tb:commit</code> adds them here.</p>`);
+  }
+  return el;
+}
+
+// Bottom-up: scale each child to fit its cell, then size the cell to the scaled height.
+function layout(nodeEl) {
+  const kids = $(":scope > .kids", nodeEl);
+  const cols = Number(kids.dataset.cols);
+  const inner = NODE_WIDTH - NODE_PAD * 2 - INDENT;
+  const cellWidth = (inner - KID_GAP * (cols - 1)) / cols;
+  const scale = cellWidth / NODE_WIDTH;
+  for (const cell of kids.children) {
+    const child = cell.firstElementChild;
+    layout(child);
+    child.style.transform = `scale(${scale})`;
+    cell.style.height = `${child.offsetHeight * scale}px`;
+  }
+}
+
+// ---------- Camera ----------
+
+let cam = { x: 0, y: 0, s: 1 };
+let focusEl = null;
+
+function apply(animate) {
+  world.classList.toggle("animating", animate);
+  world.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.s})`;
+}
+
+// Element's box in world coordinates, measured against the camera's *current* on-screen transform.
+function worldBox(el) {
+  const t = getComputedStyle(world).transform;
+  const m = t === "none" ? new DOMMatrix() : new DOMMatrix(t);
+  const r = el.getBoundingClientRect(), st = stage.getBoundingClientRect();
+  return { x: (r.left - st.left - m.e) / m.a, y: (r.top - st.top - m.f) / m.a, w: r.width / m.a, h: r.height / m.a };
+}
+
+function focus(el, { animate = true, updateHash = true } = {}) {
+  if (!el) return;
+  const b = worldBox(el);
+  const W = stage.clientWidth, H = stage.clientHeight;
+  const isRule = el.classList.contains("rule");
+  // Nodes shrink to fit the screen, but never below half the screen width (then you pan).
+  const s = isRule
+    ? Math.min((W * 0.62) / b.w, (H * 0.8) / b.h, 4 / scaleOf(el))
+    : Math.min((W * 0.94) / b.w, Math.max((H * 0.94) / b.h, (W * 0.5) / b.w));
+  const fitsVertically = b.h * s <= H * 0.94;
+  cam = {
+    s,
+    x: (W - b.w * s) / 2 - b.x * s,
+    y: fitsVertically ? (H - b.h * s) / 2 - b.y * s : 24 - b.y * s,
+  };
+  apply(animate);
+  focusEl?.classList.remove("is-focus");
+  focusEl = el;
+  el.classList.add("is-focus");
+  renderCrumbs();
+  if (updateHash) {
+    const hash = isRule ? `#rule=${el.dataset.id}` : el.dataset.path ? `#node=${el.dataset.path}` : "";
+    history.replaceState(null, "", hash || location.pathname);
+  }
+}
+
+// Cumulative scale from nested cells, so rule cards zoom to a readable (not giant) size.
+function scaleOf(el) {
+  let s = 1;
+  for (let n = el.closest(".node"); n; n = n.parentElement?.closest(".node")) {
+    const t = n.style.transform.match(/scale\(([\d.]+)\)/);
+    if (t) s *= Number(t[1]);
+  }
+  return s;
+}
+
+const parentOf = (el) => (el.classList.contains("rule") ? el.closest(".node") : el.parentElement?.closest(".node"));
+
+function renderCrumbs() {
+  const chain = [];
+  for (let n = focusEl; n; n = parentOf(n)) chain.unshift(n);
+  const crumbs = $("#crumbs");
+  crumbs.innerHTML = "";
+  chain.forEach((el, i) => {
+    if (i) crumbs.insertAdjacentHTML("beforeend", `<span class="sep">›</span>`);
+    const btn = document.createElement("button");
+    btn.textContent = el.classList.contains("rule") ? el.dataset.id : $(":scope > .node-head h2", el).textContent;
+    btn.addEventListener("click", () => focus(el));
+    crumbs.append(btn);
+  });
+}
+
+function fromHash({ animate }) {
+  const params = new URLSearchParams(location.hash.slice(1));
+  const target = params.get("rule")
+    ? world.querySelector(`.rule[data-id="${CSS.escape(params.get("rule"))}"]`)
+    : params.get("node") ? world.querySelector(`.node[data-path="${CSS.escape(params.get("node"))}"]`) : null;
+  focus(target ?? world.firstElementChild, { animate, updateHash: false });
+}
+
+// ---------- Input ----------
+
+let drag = null;
+stage.addEventListener("pointerdown", (e) => {
+  drag = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, moved: false };
+});
+window.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+  if (!drag.moved) stage.setPointerCapture?.(e.pointerId);
+  drag.moved = true;
+  stage.classList.add("dragging");
+  cam.x = drag.cx + dx;
+  cam.y = drag.cy + dy;
+  apply(false);
+});
+window.addEventListener("pointerup", () => {
+  stage.classList.remove("dragging");
+  setTimeout(() => (drag = null));
+});
+
+stage.addEventListener("click", (e) => {
+  if (drag?.moved) return;
+  const rule = e.target.closest(".rule");
+  const node = e.target.closest(".node");
+  if (rule) focus(rule === focusEl ? rule.closest(".node") : rule);
+  else if (node && node !== focusEl) focus(node);
+});
+
+stage.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  if (e.ctrlKey || e.metaKey) {
+    const st = stage.getBoundingClientRect();
+    const px = e.clientX - st.left, py = e.clientY - st.top;
+    const k = Math.exp(-e.deltaY * 0.01);
+    cam = { s: cam.s * k, x: px - (px - cam.x) * k, y: py - (py - cam.y) * k };
+  } else {
+    cam.x -= e.deltaX;
+    cam.y -= e.deltaY;
+  }
+  apply(false);
+}, { passive: false });
+
+const tour = () => [...world.querySelectorAll(".node, .rule")].filter((el) => el.offsetParent !== null);
+window.addEventListener("keydown", (e) => {
+  if (e.target.matches("input, textarea")) return;
+  if (e.key === "Escape" || e.key === "Backspace") {
+    const parent = focusEl && parentOf(focusEl);
+    if (parent) focus(parent);
+  } else if (e.key === "ArrowRight" || e.key === "ArrowLeft" || e.key === " ") {
+    e.preventDefault();
+    const stops = tour();
+    const i = stops.indexOf(focusEl);
+    const next = stops[(i + (e.key === "ArrowLeft" ? -1 : 1) + stops.length) % stops.length];
+    focus(next);
+  } else if (e.key === "0" || e.key === "Home") {
+    focus(world.firstElementChild);
+  }
+});
+
+$("#show-retired").addEventListener("change", (e) => {
+  document.body.classList.toggle("show-retired", e.target.checked);
+  layout(world.firstElementChild);
+  if (focusEl?.offsetParent === null) focusEl = focusEl.closest(".node");
+  focus(focusEl, { animate: false });
+});
+
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => focus(focusEl, { animate: false, updateHash: false }), 100);
+});
+window.addEventListener("hashchange", () => fromHash({ animate: true }));
+
+// ---------- Boot ----------
+
+$("#repo").textContent = DATA.repo;
+document.title = `${DATA.repo} · Rules Map`;
+world.append(renderNode(DATA.tree, 0, HUES[0]));
+layout(world.firstElementChild);
+fromHash({ animate: false });
+</script>
+</body>
+</html>

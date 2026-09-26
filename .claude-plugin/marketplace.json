@@ -1,0 +1,14 @@
+{
+  "name": "we-dont-need-prs",
+  "description": "Tools for building software by reviewing business rules instead of code.",
+  "owner": {
+    "name": "Travis Bumgarner"
+  },
+  "plugins": [
+    {
+      "name": "tb",
+      "source": "./",
+      "description": "Review business rules instead of code."
+    }
+  ]
+}

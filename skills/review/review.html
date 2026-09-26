@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rules Review</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --surface: #ffffff; --sunken: #f0efea; --text: #1d1d1b; --muted: #6b6b66; --border: #e2e2dc;
+    --accent: #2f5bd3; --add-bg: #e6f4ea; --add-text: #1e6b34; --del-bg: #fbe9e7; --del-text: #a4291b;
+    --new: #1e6b34; --changed: #8a5a00; --moved: #2f5bd3; --retired: #6b6b66; --removed: #a4291b;
+    --approve: #1e6b34; --reject: #a4291b; --revise: #8a5a00;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151514; --surface: #1f1f1d; --sunken: #191918; --text: #ececE8; --muted: #9a9a93; --border: #33332f;
+      --accent: #7d9cff; --add-bg: #173323; --add-text: #8fdca8; --del-bg: #3a1a16; --del-text: #f2a193;
+      --new: #8fdca8; --changed: #e8bb5a; --moved: #7d9cff; --retired: #9a9a93; --removed: #f2a193;
+      --approve: #8fdca8; --reject: #f2a193; --revise: #e8bb5a;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  a { color: var(--accent); }
+  code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  .top { position: sticky; top: 0; z-index: 2; background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 16px; }
+  .top .inner { max-width: 1240px; margin: 0 auto; display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+  .top h1 { font-size: 18px; margin: 0; }
+  .top .meta { color: var(--muted); font-size: 13px; }
+  .top .map-link { margin-left: auto; font-size: 14px; }
+
+  .layout { max-width: 1240px; margin: 0 auto; padding: 24px 16px 120px; display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 32px; }
+  @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } .outline { position: static !important; max-height: none !important; } }
+
+  /* Outline of the taxonomy */
+  .outline { position: sticky; top: 72px; align-self: start; max-height: calc(100vh - 96px); overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 6px; }
+  .outline h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 2px 10px 8px; }
+  .outline a { display: flex; gap: 6px; align-items: baseline; text-decoration: none; color: var(--muted); padding: 3px 10px; border-radius: 6px; font-size: 14px; }
+  .outline a:hover { background: var(--sunken); color: var(--text); }
+  .outline a.has-changes { color: var(--text); font-weight: 500; }
+  .outline a.removed { text-decoration: line-through; }
+  .outline .counts { margin-left: auto; display: flex; gap: 4px; font: 600 11px ui-monospace, Menlo, monospace; white-space: nowrap; }
+  .c-new { color: var(--new); } .c-changed { color: var(--changed); } .c-moved { color: var(--moved); } .c-retired { color: var(--retired); } .c-removed { color: var(--removed); }
+
+  details.context { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 20px; font-size: 13px; }
+  details.context summary { cursor: pointer; color: var(--muted); }
+  details.context ul { margin: 8px 0 0; padding-left: 18px; }
+  .warning { background: var(--del-bg); color: var(--del-text); border-radius: 8px; padding: 10px 14px; margin-bottom: 20px; font-size: 14px; }
+
+  /* A node section is the "file" of this PR */
+  .section { margin-bottom: 36px; scroll-margin-top: 80px; }
+  .section-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-bottom: 10px; }
+  .crumb { color: var(--muted); font-size: 14px; }
+  .section-head h2 { font-size: 20px; margin: 0; }
+  .section-head .path { font-size: 12px; color: var(--muted); }
+  .section-head .map { margin-left: auto; font-size: 13px; }
+  .section > .summary { color: var(--muted); margin: -4px 0 12px; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+  .card.node-card { border-style: dashed; }
+  .card-head { display: flex; gap: 10px; align-items: baseline; padding: 12px 16px 8px; flex-wrap: wrap; }
+  .badge { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; border: 1px solid currentColor; border-radius: 4px; padding: 1px 6px; }
+  .badge.new { color: var(--new); } .badge.changed { color: var(--changed); } .badge.moved { color: var(--moved); } .badge.retired { color: var(--retired); } .badge.removed { color: var(--removed); }
+  .rule-id { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  .rule-title { font-weight: 600; }
+  .note { padding: 0 16px 8px; font-size: 13px; color: var(--moved); }
+  pre.body { margin: 0; padding: 12px 16px; border-top: 1px solid var(--border); font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
+  pre.body .add { background: var(--add-bg); color: var(--add-text); display: block; }
+  pre.body .del { background: var(--del-bg); color: var(--del-text); display: block; text-decoration: line-through; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); }
+
+  .decide { border-top: 1px solid var(--border); padding: 12px 16px; display: grid; gap: 10px; background: var(--sunken); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .choices label { border: 1px solid var(--border); background: var(--surface); border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 14px; user-select: none; }
+  .choices input { position: absolute; opacity: 0; pointer-events: none; }
+  .choices input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
+  .choices label:has(input[value=approve]:checked) { border-color: var(--approve); color: var(--approve); font-weight: 600; }
+  .choices label:has(input[value=revise]:checked) { border-color: var(--revise); color: var(--revise); font-weight: 600; }
+  .choices label:has(input[value=reject]:checked) { border-color: var(--reject); color: var(--reject); font-weight: 600; }
+  .file-as { margin-left: auto; display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+  select, input[type=text], textarea { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font: inherit; font-size: 14px; }
+  select { max-width: 280px; }
+  select.moving { border-color: var(--moved); color: var(--moved); }
+  .new-node { display: none; gap: 8px; flex-wrap: wrap; }
+  .new-node.show { display: flex; }
+  .new-node input { flex: 1; min-width: 160px; }
+  textarea { width: 100%; min-height: 54px; resize: vertical; }
+  .card.needs-attention .decide textarea, .card.needs-attention .new-node input:placeholder-shown { border-color: var(--revise); }
+
+  details.unchanged { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  details.unchanged summary { cursor: pointer; }
+  details.unchanged pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 8px 0 0; font: 12px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; color: var(--text); }
+
+  .overall { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-top: 24px; }
+  .overall h2 { font-size: 15px; margin: 0 0 8px; }
+  footer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--surface); border-top: 1px solid var(--border); padding: 12px 16px; z-index: 2; }
+  footer .inner { max-width: 1240px; margin: 0 auto; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .progress { color: var(--muted); font-size: 14px; margin-right: auto; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 8px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); font-weight: 400; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .empty, .done { text-align: center; color: var(--muted); padding: 64px 0; }
+  .done h2 { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="top"><div class="inner">
+  <h1>Rules review</h1>
+  <span class="meta" id="meta"></span>
+  <a class="map-link" href="/map" target="_blank" rel="noopener">Open map ↗</a>
+</div></div>
+<div class="layout">
+  <nav class="outline" id="outline" aria-label="Taxonomy"></nav>
+  <main id="app"><p class="empty">Loading…</p></main>
+</div>
+<footer id="footer" hidden><div class="inner">
+  <span class="progress" id="progress"></span>
+  <button class="secondary" id="approve-rest" type="button">Approve remaining</button>
+  <button id="submit" type="button" disabled>Submit review</button>
+</div></footer>
+<script>
+const $ = (sel, el = document) => el.querySelector(sel);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+// Line-level LCS diff.
+function diffLines(a, b) {
+  const x = a.split("\n"), y = b.split("\n");
+  const dp = Array.from({ length: x.length + 1 }, () => new Array(y.length + 1).fill(0));
+  for (let i = x.length - 1; i >= 0; i--)
+    for (let j = y.length - 1; j >= 0; j--)
+      dp[i][j] = x[i] === y[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = [];
+  let i = 0, j = 0;
+  while (i < x.length && j < y.length) {
+    if (x[i] === y[j]) { out.push(["same", x[i]]); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) out.push(["del", x[i++]]);
+    else out.push(["add", y[j++]]);
+  }
+  while (i < x.length) out.push(["del", x[i++]]);
+  while (j < y.length) out.push(["add", y[j++]]);
+  return out;
+}
+const renderDiff = (before, after) => {
+  if (before == null) return esc(after);
+  if (after == null) return before.split("\n").map((l) => `<span class="del">${esc(l) || " "}</span>`).join("");
+  return diffLines(before, after).map(([k, l]) => k === "same" ? esc(l) + "\n" : `<span class="${k}">${esc(l) || " "}</span>`).join("");
+};
+
+let review, byPath;
+const decisions = { nodes: {}, rules: {} };
+const titleOf = (path) => byPath.get(path)?.title ?? (path || "Root");
+const ancestors = (path) => {
+  const parts = path ? path.split("/") : [];
+  const chain = [""];
+  parts.forEach((_, i) => chain.push(parts.slice(0, i + 1).join("/")));
+  return chain.slice(0, -1);
+};
+const label = (path) => `${titleOf(path)} — rules/${path ? path + "/" : ""}`;
+
+function choices(name) {
+  return `<div class="row choices" role="radiogroup">
+    ${[["approve", "Approve"], ["revise", "Needs changes"], ["reject", "Reject"]].map(([v, l]) =>
+      `<label><input type="radio" name="${esc(name)}" value="${v}"><span>${l}</span></label>`).join("")}
+  </div>`;
+}
+
+function nodeCard(change) {
+  const d = (decisions.nodes[change.path] = { path: change.path, kind: change.kind, decision: null, comment: "" });
+  const card = document.createElement("article");
+  card.className = "card node-card";
+  const before = change.before ? `# ${change.before.title}\n\n${change.before.summary}` : null;
+  const after = change.kind === "removed" ? null : `# ${change.title}\n\n${change.summary}`;
+  card.innerHTML = `
+    <div class="card-head"><span class="badge ${change.kind}">${change.kind} node</span><span class="rule-title">${esc(change.title)}</span></div>
+    <pre class="body">${renderDiff(before, after)}</pre>
+    <div class="decide">${choices(`n-${change.path}`)}<textarea placeholder="Comment (required for Needs changes / Reject)"></textarea></div>`;
+  wire(card, d);
+  return card;
+}
+
+function ruleCard(change) {
+  const d = (decisions.rules[change.id] = { id: change.id, kind: change.kind, decision: null, comment: "", moveTo: null, newNode: null });
+  const card = document.createElement("article");
+  card.className = "card";
+  const canMove = change.kind !== "removed";
+  const options = review.tree.filter((n) => !n.removed).map((n) =>
+    `<option value="${esc(n.path)}"${n.path === change.node ? " selected" : ""}>${esc(n.path === change.node ? `Keep here (${label(n.path)})` : label(n.path))}</option>`).join("");
+  card.innerHTML = `
+    <div class="card-head">
+      <span class="badge ${change.kind}">${change.kind}</span>
+      <span class="rule-id">${esc(change.id)}</span>
+      <span class="rule-title">${esc(change.title)}</span>
+    </div>
+    ${change.fromNode != null ? `<div class="note">Moved from ${esc(label(change.fromNode))}</div>` : ""}
+    <pre class="body">${renderDiff(change.before, change.body)}</pre>
+    <div class="decide">
+      <div class="row">${choices(`r-${change.id}`)}
+        ${canMove ? `<label class="file-as">File under <select>${options}<option value="__new__">New node…</option></select></label>` : ""}
+      </div>
+      ${canMove ? `<div class="new-node"><input type="text" class="nn-path" placeholder="Folder, e.g. ${esc(change.node ? change.node + "/" : "")}reminders"><input type="text" class="nn-title" placeholder="Node title, e.g. Reminders"></div>` : ""}
+      <textarea placeholder="Comment (required for Needs changes / Reject)"></textarea>
+    </div>`;
+  wire(card, d);
+  const select = $("select", card);
+  if (select) {
+    const nn = $(".new-node", card);
+    const syncMove = () => {
+      const v = select.value;
+      d.moveTo = v === change.node ? null : v === "__new__" ? $(".nn-path", card).value.trim().replace(/^rules\//, "").replace(/\/$/, "") : v;
+      d.newNode = v === "__new__" ? { path: d.moveTo, title: $(".nn-title", card).value.trim() } : null;
+      select.classList.toggle("moving", v !== change.node);
+      nn.classList.toggle("show", v === "__new__");
+      update();
+    };
+    select.addEventListener("change", syncMove);
+    card.querySelectorAll(".new-node input").forEach((i) => i.addEventListener("input", syncMove));
+  }
+  return card;
+}
+
+function wire(card, d) {
+  d._card = card;
+  card.addEventListener("change", (e) => {
+    if (e.target.type !== "radio") return;
+    d.decision = e.target.value;
+    const select = $("select", card);
+    if (select) select.disabled = d.decision === "reject";
+    update();
+  });
+  $("textarea", card).addEventListener("input", (e) => { d.comment = e.target.value; update(); });
+}
+
+const all = () => [...Object.values(decisions.nodes), ...Object.values(decisions.rules)];
+const problems = (d) => {
+  if (!d.decision) return "undecided";
+  if (["revise", "reject"].includes(d.decision) && !d.comment.trim()) return "comment";
+  if (d.decision !== "reject" && d.newNode && (!d.newNode.path || !d.newNode.title)) return "new node";
+  return null;
+};
+
+function update() {
+  const items = all();
+  const decided = items.filter((d) => d.decision).length;
+  const incomplete = items.filter((d) => d.decision && problems(d));
+  items.forEach((d) => d._card.classList.toggle("needs-attention", Boolean(d.decision && problems(d))));
+  const moves = Object.values(decisions.rules).filter((d) => d.moveTo != null && d.decision !== "reject").length;
+  $("#progress").textContent = `${decided} of ${items.length} decided` +
+    (moves ? ` · ${plural(moves, "re-filing")}` : "") +
+    (incomplete.length ? ` · ${incomplete.length} need a comment or node details` : "");
+  $("#submit").disabled = decided < items.length || incomplete.length > 0;
+  $("#approve-rest").hidden = decided === items.length;
+}
+
+function renderOutline() {
+  const counts = {};
+  const bump = (path, kind) => ((counts[path] ??= {})[kind] = (counts[path][kind] ?? 0) + 1);
+  review.ruleChanges.forEach((r) => bump(r.node, r.kind));
+  review.nodeChanges.forEach((n) => bump(n.path, `node-${n.kind}`));
+  const symbols = { new: "+", changed: "~", moved: "↪", retired: "⊘", removed: "−" };
+  $("#outline").innerHTML = `<h2>Taxonomy</h2>` + review.tree.map((n) => {
+    const c = counts[n.path] ?? {};
+    const depth = n.path ? n.path.split("/").length : 0;
+    const badges = Object.entries(symbols).filter(([k]) => c[k]).map(([k, s]) => `<span class="c-${k}">${s}${c[k]}</span>`).join("");
+    const nodeTag = c["node-new"] ? `<span class="c-new">NEW</span>` : c["node-changed"] ? `<span class="c-changed">EDIT</span>` : c["node-removed"] ? `<span class="c-removed">DEL</span>` : "";
+    const changed = Object.keys(c).length > 0;
+    const href = changed ? `#node-${encodeURIComponent(n.path)}` : `/map#node=${encodeURIComponent(n.path)}`;
+    return `<a href="${href}" ${changed ? "" : 'target="_blank" rel="noopener"'} class="${changed ? "has-changes" : ""} ${n.removed ? "removed" : ""}" style="padding-left:${10 + depth * 14}px">
+      <span>${esc(n.title)}</span><span class="counts">${nodeTag}${badges}</span></a>`;
+  }).join("");
+}
+
+function renderSection(path) {
+  const node = byPath.get(path);
+  const section = document.createElement("section");
+  section.className = "section";
+  section.id = `node-${encodeURIComponent(path)}`;
+  const crumbs = ancestors(path).map(titleOf).join(" › ");
+  section.innerHTML = `
+    <div class="section-head">
+      ${crumbs ? `<span class="crumb">${esc(crumbs)} ›</span>` : ""}
+      <h2>${esc(node?.title ?? path)}</h2>
+      <span class="path"><code>rules/${esc(path ? path + "/" : "")}</code></span>
+      <a class="map" href="/map#node=${encodeURIComponent(path)}" target="_blank" rel="noopener">View on map ↗</a>
+    </div>
+    ${node?.summary ? `<p class="summary">${esc(node.summary)}</p>` : ""}`;
+  review.nodeChanges.filter((n) => n.path === path).forEach((n) => section.append(nodeCard(n)));
+  review.ruleChanges.filter((r) => r.node === path).forEach((r) => section.append(ruleCard(r)));
+  const context = review.context[path] ?? [];
+  if (context.length) {
+    section.insertAdjacentHTML("beforeend", `<details class="unchanged"><summary>${plural(context.length, "unchanged rule")} in this node</summary>
+      ${context.map((r) => `<pre>${esc(r.body)}</pre>`).join("")}</details>`);
+  }
+  return section;
+}
+
+async function load() {
+  review = await (await fetch("/api/review")).json();
+  byPath = new Map(review.tree.map((n) => [n.path, n]));
+  const nRules = review.ruleChanges.length, nNodes = review.nodeChanges.length;
+  $("#meta").innerHTML = `<code>${esc(review.branch)}</code> → <code>${esc(review.baseBranch)}</code> · ${plural(nRules, "rule change")} · ${plural(nNodes, "node change")} · ${plural(review.commits.length, "commit")}`;
+  renderOutline();
+
+  const app = $("#app");
+  app.innerHTML = `
+    ${review.uncommittedRules ? `<div class="warning">There are uncommitted changes in <code>rules/</code>. They're not shown here. Run <code>/tb:commit</code> first.</div>` : ""}
+    <details class="context"><summary>Commits and code files on this branch</summary>
+      <ul>${review.commits.map((c) => `<li><code>${esc(c.hash)}</code> ${esc(c.subject)}</li>`).join("") || "<li>No commits</li>"}</ul>
+      ${review.codeFiles.length ? `<p>Code files changed (not reviewed here):</p><ul>${review.codeFiles.map((f) => `<li><code>${esc(f)}</code></li>`).join("")}</ul>` : ""}
+    </details>
+    <div id="sections"></div>
+    <section class="overall"><h2>Overall comment (optional)</h2><textarea id="summary" placeholder="Anything about the branch as a whole, or how the taxonomy is organized"></textarea></section>`;
+
+  const paths = [...new Set([...review.nodeChanges.map((n) => n.path), ...review.ruleChanges.map((r) => r.node)])]
+    .sort((a, b) => a.localeCompare(b));
+  if (!paths.length) $("#sections").innerHTML = `<p class="empty">No rule or taxonomy changes on this branch.</p>`;
+  paths.forEach((p) => $("#sections").append(renderSection(p)));
+
+  $("#footer").hidden = false;
+  $("#approve-rest").addEventListener("click", () => {
+    for (const d of all()) {
+      if (d.decision) continue;
+      d.decision = "approve";
+      $("input[value=approve]", d._card).checked = true;
+    }
+    update();
+  });
+  $("#submit").addEventListener("click", async () => {
+    $("#submit").disabled = true;
+    const strip = ({ _card, ...rest }) => rest;
+    const body = {
+      summary: $("#summary").value,
+      nodes: Object.values(decisions.nodes).map(strip),
+      rules: Object.values(decisions.rules).map(strip),
+    };
+    const res = await fetch("/api/decisions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    if (!res.ok) { $("#submit").disabled = false; alert("Couldn't save the review. Is the server still running?"); return; }
+    const counts = all().reduce((acc, d) => ((acc[d.decision] = (acc[d.decision] || 0) + 1), acc), {});
+    $("#footer").hidden = true;
+    app.innerHTML = `<div class="done"><h2>Review submitted</h2><p>${counts.approve || 0} approved · ${counts.revise || 0} need changes · ${counts.reject || 0} rejected</p><p>Head back to Claude Code. You can close this tab.</p></div>`;
+  });
+  update();
+}
+
+load().catch((err) => { $("#app").innerHTML = `<p class="empty">Couldn't load the review: ${esc(String(err))}</p>`; });
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+name: guardrails
+
+# Runs the hard rules from the tool repo, pinned to a commit. pull_request_target means
+# this file is read from the base branch, so a PR can't change which checks run on it.
+# To upgrade, a human changes BOTH SHAs below to a newer commit of the tool repo.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+jobs:
+  guardrails:
+    uses: {{TOOL_REPO}}/.github/workflows/guardrails.yml@{{TOOL_SHA}}
+    with:
+      tool-repository: {{TOOL_REPO}}
+      tool-ref: {{TOOL_SHA}}
